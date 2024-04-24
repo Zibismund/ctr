@@ -8,7 +8,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 
 public class ClipboardLogger extends Frame implements ClipboardOwner {
-    private List textList;  // AWT List to display copied texts, now within a ScrollPane
+    private TextArea textArea;  // TextArea to display copied texts
     private int copyCounter = 1;  // To track copied text entries
     private java.util.List<String> dataStorage = new ArrayList<>();  // Storage for text for file saving
 
@@ -24,16 +24,19 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
             @Override
             public void windowClosing(WindowEvent e) {
                 saveDataToFile();
+                System.exit(0);
             }
         });
 
-        textList = new List();
-        ScrollPane scrollPane = new ScrollPane();  // Creating a ScrollPane
-        scrollPane.add(textList);                 // Adding the List to the ScrollPane
-        add(scrollPane, BorderLayout.CENTER);     // Adding the ScrollPane to the Frame
+        textArea = new TextArea(10, 40);
+        textArea.setEditable(false);  // Make TextArea read-only
+        add(textArea, BorderLayout.CENTER);
 
         Button endButton = new Button("End Program");
-        endButton.addActionListener(e -> saveDataToFile());
+        endButton.addActionListener(e -> {
+            saveDataToFile();
+            System.exit(0);
+        });
         add(endButton, BorderLayout.SOUTH);
 
         setVisible(true);
@@ -50,11 +53,32 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
         clipboard.setContents(contents, this);
     }
 
+    private Transferable getClipboardContents(Clipboard clipboard) {
+        final int MAX_ATTEMPTS = 10;
+        int attempt = 0;
+        while (attempt < MAX_ATTEMPTS) {
+            try {
+                return clipboard.getContents(null);
+            } catch (IllegalStateException e) {
+                if (attempt == MAX_ATTEMPTS - 1) {
+                    System.err.println("Failed to access clipboard after multiple attempts: " + e.getMessage());
+                }
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+                attempt++;
+            }
+        }
+        return null;
+    }
+
     @Override
     public void lostOwnership(Clipboard clipboard, Transferable contents) {
         try {
-            Thread.sleep(200); // Delay to allow clipboard to update
-            Transferable newContents = clipboard.getContents(null);
+            Thread.sleep(200);
+            Transferable newContents = getClipboardContents(clipboard);
             processContents(newContents);
             takeOwnership(clipboard, newContents);
         } catch (Exception e) {
@@ -63,15 +87,18 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
     }
 
     private void processContents(Transferable contents) {
-        if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
-            try {
+        try {
+            if (contents != null && contents.isDataFlavorSupported(DataFlavor.stringFlavor)) {
                 String text = (String) contents.getTransferData(DataFlavor.stringFlavor);
-                String entry = copyCounter++ + ") " + text; // Changing the format to number followed by text
-                textList.add(entry);
+                String entry = copyCounter++ + ") " + text;
+                textArea.append(entry + "\n");
                 dataStorage.add(entry);
-            } catch (Exception e) {
-                e.printStackTrace();
+            } else {
+                System.out.println("Clipboard contains unsupported data types.");
             }
+        } catch (Exception e) {
+            System.err.println("Error processing clipboard contents: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -80,14 +107,12 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
         String fileName = "new";
         String fileExtension = ".txt";
 
-        // Generate a unique file name
         File file;
         int fileNumber = 1;
         do {
             file = new File(baseDir + fileName + "(" + fileNumber++ + ")" + fileExtension);
         } while (file.exists());
 
-        // Write data to the new unique file
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
             for (String data : dataStorage) {
                 writer.write(data + "\n");
@@ -95,7 +120,6 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        System.exit(0);
     }
 
     public static void main(String[] args) {
