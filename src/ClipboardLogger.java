@@ -1,3 +1,4 @@
+import javax.swing.*;
 import java.awt.*;
 import java.awt.datatransfer.*;
 import java.awt.event.*;
@@ -7,8 +8,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 
-public class ClipboardLogger extends Frame implements ClipboardOwner {
-    private TextArea textArea;  // TextArea to display copied texts
+public class ClipboardLogger extends JFrame implements ClipboardOwner {
+    private JTextArea textArea;  // JTextArea to display copied texts
     private int copyCounter = 1;  // To track copied text entries
     private java.util.List<String> dataStorage = new ArrayList<>();  // Storage for text for file saving
 
@@ -18,21 +19,16 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
     }
 
     private void prepareGUI() {
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(500, 300);
         setLayout(new BorderLayout());
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                saveDataToFile();
-                System.exit(0);
-            }
-        });
 
-        textArea = new TextArea(10, 40);
-        textArea.setEditable(false);  // Make TextArea read-only
-        add(textArea, BorderLayout.CENTER);
+        textArea = new JTextArea(10, 40);
+        textArea.setEditable(false);  // Make JTextArea read-only
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        add(scrollPane, BorderLayout.CENTER);
 
-        Button endButton = new Button("End Program");
+        JButton endButton = new JButton("End Program");
         endButton.addActionListener(e -> {
             saveDataToFile();
             System.exit(0);
@@ -50,28 +46,34 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
     }
 
     private void takeOwnership(Clipboard clipboard, Transferable contents) {
-        clipboard.setContents(contents, this);
-    }
-
-    private Transferable getClipboardContents(Clipboard clipboard) {
-        final int MAX_ATTEMPTS = 10;
-        int attempt = 0;
-        while (attempt < MAX_ATTEMPTS) {
+        final int MAX_RETRIES = 5;
+        int retries = 0;
+        boolean success = false;
+        while (!success && retries < MAX_RETRIES) {
             try {
-                return clipboard.getContents(null);
-            } catch (IllegalStateException e) {
-                if (attempt == MAX_ATTEMPTS - 1) {
-                    System.err.println("Failed to access clipboard after multiple attempts: " + e.getMessage());
-                }
-                try {
-                    Thread.sleep(200);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                }
-                attempt++;
+                clipboard.setContents(contents, this);
+                success = true;
+            } catch (IllegalStateException ex) {
+                retries++;
+                handleException("Clipboard access error. Retry " + retries, ex);
             }
         }
-        return null;
+        if (!success) {
+            showContinueDialog("Unable to access the clipboard after several attempts.");
+        }
+    }
+
+    private void handleException(String message, Exception ex) {
+        JOptionPane.showMessageDialog(this, message + "\n" + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private void showContinueDialog(String message) {
+        int result = JOptionPane.showConfirmDialog(this, message + "\nDo you want to continue?", "Error", JOptionPane.YES_NO_OPTION, JOptionPane.ERROR_MESSAGE);
+        if (result == JOptionPane.YES_OPTION) {
+            listenToClipboard();  // Try to resume listening to clipboard
+        } else {
+            System.exit(1);  // Exit if the user chooses not to continue
+        }
     }
 
     @Override
@@ -81,8 +83,19 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
             Transferable newContents = getClipboardContents(clipboard);
             processContents(newContents);
             takeOwnership(clipboard, newContents);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            e.printStackTrace();
+            handleException("Error while handling clipboard data", e);
+        }
+    }
+
+    private Transferable getClipboardContents(Clipboard clipboard) {
+        try {
+            return clipboard.getContents(null);
+        } catch (IllegalStateException e) {
+            showContinueDialog("Failed to access clipboard: " + e.getMessage());
+            return null;
         }
     }
 
@@ -97,8 +110,7 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
                 System.out.println("Clipboard contains unsupported data types.");
             }
         } catch (Exception e) {
-            System.err.println("Error processing clipboard contents: " + e.getMessage());
-            e.printStackTrace();
+            handleException("Error processing clipboard contents", e);
         }
     }
 
@@ -118,7 +130,7 @@ public class ClipboardLogger extends Frame implements ClipboardOwner {
                 writer.write(data + "\n");
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            handleException("Failed to save data to file", e);
         }
     }
 
